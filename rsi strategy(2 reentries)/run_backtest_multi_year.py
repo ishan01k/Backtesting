@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Nifty 50 - Bollinger Band Options Selling Strategy Backtest (All Days)
+Nifty 50 - Bollinger Band Options Selling Strategy Backtest (All Days, Multi-Year)
 """
 
 import argparse
@@ -16,54 +16,55 @@ from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 
-STRIKE_RE     = re.compile(r'NIFTY\d+[A-Z]+\d{2}(\d+)(CE|PE)$')
-
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--capital",    type=float, default=500_000)
     p.add_argument("--period",     type=int,   default=20)
     p.add_argument("--std",        type=float, default=2.0)
     p.add_argument("--lots",       type=int,   default=1)
-    p.add_argument("--lot-size",   type=int,   default=50, dest="lot_size")
+    p.add_argument("--lot-size",   type=int,   default=65, dest="lot_size")
     p.add_argument("--settle",     default="15:15")
     p.add_argument("--start-time", default="09:45:00")
     p.add_argument("--max-entries", type=int,  default=3)
+    p.add_argument("--settlement-ceiling", type=int, default=50, dest="settlement_ceiling",
+                   help="Exit when spot moves this many points in-favour of the short. 0 = disabled.")
     return p.parse_args()
 
 def load_csv(path):
-    ce_prices, pe_prices = defaultdict(dict), defaultdict(dict)
+    ce_prices, pe_prices, spot_prices = defaultdict(dict), defaultdict(dict), {}
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
-            m = STRIKE_RE.search(row.get("symbol", "").strip())
-            if not m:
-                continue
-            strike = int(m.group(1))
-            otype  = m.group(2)
-            t      = row["time"].strip()
+            t = ""
+            if "datetime" in row and row["datetime"]:
+                parts = row["datetime"].split(" ")
+                if len(parts) > 1:
+                    t = parts[1][:5]
+            if not t:
+                t = row.get("time", "").strip()
+            if len(t) > 5 and ":" in t:
+                t = t[:5]
+                
             try:
-                price = float(row["close"])
+                strike = int(float(row.get("api_strike", 0)))
+                otype = row.get("option_type", "").strip().upper()
+                price = float(row.get("close", 0))
+                spot = float(row.get("spot", 0))
             except (ValueError, KeyError):
                 continue
-            if otype == "CE":
+            
+            if spot > 0 and t not in spot_prices:
+                spot_prices[t] = spot
+            
+            if otype in ("CALL", "CE"):
                 ce_prices[t][strike] = price
-            else:
+            elif otype in ("PUT", "PE"):
                 pe_prices[t][strike] = price
-    return ce_prices, pe_prices
+    return ce_prices, pe_prices, spot_prices
 
-def reconstruct_nifty(ce_prices, pe_prices):
+def get_actual_nifty(spot_prices):
     candles = []
-    for t in sorted(ce_prices):
-        common_strikes = set(ce_prices[t].keys()) & set(pe_prices[t].keys())
-        if not common_strikes:
-            continue
-        
-        # Use the strike where |CE - PE| is minimized (i.e. closest to ATM) for best synthetic spot pricing
-        best_strike = min(common_strikes, key=lambda s: abs(ce_prices[t][s] - pe_prices[t][s]))
-        
-        ce = ce_prices[t][best_strike]
-        pe = pe_prices[t][best_strike]
-        
-        candles.append({"time": t, "close": round(best_strike + ce - pe, 2)})
+    for t in sorted(spot_prices.keys()):
+        candles.append({"time": t, "close": spot_prices[t]})
     return candles
 
 def compute_bb(closes, period, mult):
@@ -126,13 +127,17 @@ def get_price(prices, t, strike):
     return None
 
 def run_strategy(candles, bands, rsi_vals, ce_prices, pe_prices,
-                 starting_capital, lots, lot_size, settle_hhmm, start_hhmmss, max_entries):
+                 starting_capital, lots, lot_size, settle_hhmm, start_hhmmss, max_entries,
+                 settlement_ceiling=50):
     """
     One CE sell + One PE sell per day active at a time.
     Entries only happen on or after `start_hhmmss`.
     Allows multiple trades per day per leg if stop loss hits.
     Includes Stop Loss based on the opposite Bollinger Band at entry time.
     Waits for RSI(2) < 25 to sell PE, and RSI(2) > 75 to sell CE after BB triggers.
+    Settlement Ceiling: exit when spot moves `settlement_ceiling` pts in-favour
+      (CE: spot drops below entry_spot - ceiling | PE: spot rises above entry_spot + ceiling).
+      Set settlement_ceiling=0 to disable.
     """
     qty         = lots * lot_size
     settle_full = settle_hhmm + ":00"
@@ -192,6 +197,21 @@ def run_strategy(candles, bands, rsi_vals, ce_prices, pe_prices,
             })
             ce_trade = None
 
+        # ── 2b. Settlement Ceiling for active CE trade (spot drops in-favour) ──
+        if ce_trade and settlement_ceiling > 0 and close <= ce_trade["entry_spot"] - settlement_ceiling:
+            opt_price = get_price(ce_prices, t, ce_trade["strike"])
+            if opt_price is not None and opt_price < ce_trade["sell_price"]:
+                ep = opt_price
+                pnl = round((ce_trade["sell_price"] - ep) * qty, 2)
+                capital = round(capital + pnl, 2)
+                trades.append({**ce_trade,
+                    "type": "CE",
+                    "exit_time": t, "exit_price": ep,
+                    "exit_reason": f"Ceiling Hit (spot {close:.1f} <= entry {ce_trade['entry_spot']:.1f} - {settlement_ceiling} & option {opt_price:.2f} < {ce_trade['sell_price']:.2f})",
+                    "pnl": pnl, "capital_after": capital,
+                })
+                ce_trade = None
+
         # ── 3. Check Stop Loss for active PE trade (Short Put) ──
         if pe_trade and close <= pe_trade["sl_spot"]:
             ep = get_price(pe_prices, t, pe_trade["strike"]) or pe_trade["sell_price"]
@@ -204,6 +224,21 @@ def run_strategy(candles, bands, rsi_vals, ce_prices, pe_prices,
                 "pnl": pnl, "capital_after": capital,
             })
             pe_trade = None
+
+        # ── 3b. Settlement Ceiling for active PE trade (spot rises in-favour) ──
+        if pe_trade and settlement_ceiling > 0 and close >= pe_trade["entry_spot"] + settlement_ceiling:
+            opt_price = get_price(pe_prices, t, pe_trade["strike"])
+            if opt_price is not None and opt_price < pe_trade["sell_price"]:
+                ep = opt_price
+                pnl = round((pe_trade["sell_price"] - ep) * qty, 2)
+                capital = round(capital + pnl, 2)
+                trades.append({**pe_trade,
+                    "type": "PE",
+                    "exit_time": t, "exit_price": ep,
+                    "exit_reason": f"Ceiling Hit (spot {close:.1f} >= entry {pe_trade['entry_spot']:.1f} + {settlement_ceiling} & option {opt_price:.2f} < {pe_trade['sell_price']:.2f})",
+                    "pnl": pnl, "capital_after": capital,
+                })
+                pe_trade = None
                 
         if t < start_hhmmss:
             continue
@@ -217,7 +252,8 @@ def run_strategy(candles, bands, rsi_vals, ce_prices, pe_prices,
         if waiting_for_pe_rsi and curr_rsi is not None and curr_rsi < 25:
             sp = get_price(pe_prices, t, strike)
             if sp and sp > 0.5:
-                pe_trade = {"strike": strike, "sell_price": sp, "entry_time": t, "sl_spot": B["lower"]}
+                pe_trade = {"strike": strike, "sell_price": sp, "entry_time": t,
+                            "sl_spot": B["lower"], "entry_spot": close}
                 pe_entry_count += 1
                 waiting_for_pe_rsi = False
 
@@ -228,7 +264,8 @@ def run_strategy(candles, bands, rsi_vals, ce_prices, pe_prices,
         if waiting_for_ce_rsi and curr_rsi is not None and curr_rsi > 75:
             sp = get_price(ce_prices, t, strike)
             if sp and sp > 0.5:
-                ce_trade = {"strike": strike, "sell_price": sp, "entry_time": t, "sl_spot": B["upper"]}
+                ce_trade = {"strike": strike, "sell_price": sp, "entry_time": t,
+                            "sl_spot": B["upper"], "entry_spot": close}
                 ce_entry_count += 1
                 waiting_for_ce_rsi = False
 
@@ -238,7 +275,7 @@ def run_strategy(candles, bands, rsi_vals, ce_prices, pe_prices,
         (pe_trade, pe_prices, "PE"),
     ]:
         if trade:
-            last_t   = candles[-1]["time"]
+            last_t   = candles[-1]["time"] if candles else "15:30"
             ep       = get_price(piv, last_t, trade["strike"]) or trade["sell_price"]
             pnl      = round((trade["sell_price"] - ep) * qty, 2)
             capital  = round(capital + pnl, 2)
@@ -253,11 +290,11 @@ def run_strategy(candles, bands, rsi_vals, ce_prices, pe_prices,
 
 def get_sorted_files(data_dir):
     files = []
-    pattern = re.compile(r'nifty_option_data_(\d{1,2})\.(\d{1,2})\.(\d{4})\.csv')
-    for p in Path(data_dir).glob('nifty_option_data_*.csv'):
+    pattern = re.compile(r'nifty_options_(\d{4})-(\d{2})-(\d{2})\.csv')
+    for p in Path(data_dir).rglob('nifty_options_*.csv'):
         m = pattern.search(p.name)
         if m:
-            d, m_month, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            y, m_month, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
             dt = datetime.date(y, m_month, d)
             files.append((dt, p))
     files.sort(key=lambda x: x[0])
@@ -266,8 +303,11 @@ def get_sorted_files(data_dir):
 def main():
     args = parse_args()
     script_dir = Path(__file__).parent
-    data_dir = script_dir / "nifty_data"
-    
+    # Data folder lives one level up (backtests root); fall back to local copy if present
+    data_dir = script_dir.parent / "Data"
+    if not data_dir.exists():
+        data_dir = script_dir / "Data"
+
     if not data_dir.exists():
         print(f"ERROR: {data_dir} not found")
         sys.exit(1)
@@ -285,10 +325,11 @@ def main():
         if idx % 50 == 0:
             print(f"Processing day {idx+1}/{len(files)}: {dt} ...")
             
-        ce, pe = load_csv(path)
-        candles = reconstruct_nifty(ce, pe)
+        ce, pe, spot_prices = load_csv(path)
+        candles = get_actual_nifty(spot_prices)
         
         if not candles:
+            print(f"Warning: No valid candles found for {dt}, skipping.")
             continue
             
         closes = [c["close"] for c in candles]
@@ -298,7 +339,8 @@ def main():
         start_cap = capital
         trades, capital = run_strategy(
             candles, bands, rsi_vals, ce, pe,
-            capital, args.lots, args.lot_size, args.settle, args.start_time, args.max_entries
+            capital, args.lots, args.lot_size, args.settle, args.start_time, args.max_entries,
+            settlement_ceiling=args.settlement_ceiling
         )
         
         qty = args.lots * args.lot_size
@@ -339,7 +381,6 @@ def main():
     # Calculate Max Drawdown
     peak = args.capital
     max_dd_pct = 0.0
-    current_cap = args.capital
     for tr in all_trade_records:
         current_cap = tr["Capital_After"]
         if current_cap > peak:
@@ -352,31 +393,16 @@ def main():
     # Save Daily Returns CSV
     df = pd.DataFrame(daily_records)
     out_csv = script_dir / "bb_strategy_daily_returns.csv"
-    df.to_csv(out_csv, index=False)
-    print(f"Saved daily returns to {out_csv}")
+    if not df.empty:
+        df.to_csv(out_csv, index=False)
+        print(f"Saved daily returns to {out_csv}")
     
     # Save Trade-level Details CSV
     df_trades = pd.DataFrame(all_trade_records)
     out_trades_csv = script_dir / "bb_all_trades_details.csv"
-    df_trades.to_csv(out_trades_csv, index=False)
-    print(f"Saved detailed trade log to {out_trades_csv}")
-    
-    # Plotting
-    if not df.empty:
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.set_index('Date', inplace=True)
-        
-        plt.figure(figsize=(12, 6))
-        plt.plot(df.index, df['Ending_Capital'], label='Strategy Equity', color='blue', linewidth=1.5)
-        plt.title('Bollinger Band Strategy - Cumulative Equity Curve')
-        plt.xlabel('Date')
-        plt.ylabel('Capital (₹)')
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        
-        out_plot = script_dir / "bb_annual_returns_plot.png"
-        plt.savefig(out_plot, dpi=300, bbox_inches='tight')
-        print(f"Saved equity curve plot to {out_plot}")
+    if not df_trades.empty:
+        df_trades.to_csv(out_trades_csv, index=False)
+        print(f"Saved detailed trade log to {out_trades_csv}")
         
 if __name__ == "__main__":
     main()
