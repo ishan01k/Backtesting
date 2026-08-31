@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nifty Slope Day Trade Inspector</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- TradingView Lightweight Charts (Served Locally) -->
+    <script src="lightweight-charts.js"></script>
+    <!-- Chart.js (Served Locally) -->
+    <script src="chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #0B0E14;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.06);
+            --text-primary: #FAFAFA;
+            --text-secondary: #90A4AE;
+            --ce-color: #00E5FF;
+            --pe-color: #FF9100;
+            --green-color: #00E676;
+            --red-color: #FF5252;
+            --atm-color: rgba(255, 215, 0, 0.15);
+            --atm-border: #FFD700;
+            --font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            padding: 24px;
+            min-height: 100vh;
+        }
+
+        /* --- Header Styles --- */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .header-title-container h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #FAFAFA 0%, #B0BEC5 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px;
+        }
+
+        .header-title-container p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary {
+            background: #2196F3;
+            border-color: #2196F3;
+        }
+
+        .btn-primary:hover {
+            background: #1E88E5;
+            border-color: #1E88E5;
+        }
+
+        /* --- Key Stats Panels --- */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 16px 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.75px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .stat-value.green { color: var(--green-color); }
+        .stat-value.red { color: var(--red-color); }
+
+        /* --- Workspace Grid --- */
+        .workspace-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .workspace-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 420px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* --- TradingView Chart Container --- */
+        #chart-container {
+            flex-grow: 1;
+            width: 100%;
+            height: 380px;
+            min-height: 380px;
+            position: relative;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        /* --- Trades Panel List --- */
+        .trades-list {
+            overflow-y: auto;
+            flex-grow: 1;
+            max-height: 350px;
+            padding-right: 4px;
+        }
+
+        .trade-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .trade-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: scale(1.01);
+        }
+
+        .trade-item-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 13px;
+        }
+
+        .trade-type-badge {
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .trade-type-badge.ce {
+            background: rgba(0, 229, 255, 0.15);
+            color: var(--ce-color);
+            border: 1px solid rgba(0, 229, 255, 0.3);
+        }
+
+        .trade-type-badge.pe {
+            background: rgba(255, 145, 0, 0.15);
+            color: var(--pe-color);
+            border: 1px solid rgba(255, 145, 0, 0.3);
+        }
+
+        .trade-pnl {
+            font-weight: 700;
+        }
+
+        .trade-pnl.green { color: var(--green-color); }
+        .trade-pnl.red { color: var(--red-color); }
+
+        .trade-details-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* --- Timeline Scrub Controller --- */
+        .timeline-container {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .timeline-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .play-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .play-btn:hover {
+            transform: scale(1.08);
+            background: #1e88e5;
+        }
+
+        .time-slider-wrapper {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .time-slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .time-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .time-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #2196F3;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+
+        .time-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            background: #42A5F5;
+        }
+
+        .speed-select {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* --- Options Chain Grid Layout --- */
+        .options-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .options-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .options-table-container {
+            overflow-x: auto;
+            max-height: 520px;
+        }
+
+        table.option-chain-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12.5px;
+            text-align: center;
+        }
+
+        table.option-chain-table th {
+            background: rgba(255, 255, 255, 0.02);
+            padding: 8px 4px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--card-border);
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.5px;
+        }
+
+        table.option-chain-table td {
+            padding: 6px 4px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+        }
+
+        .ce-column { color: var(--ce-color); }
+        .pe-column { color: var(--pe-color); }
+        .strike-column {
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-primary);
+            border-left: 1px solid var(--card-border);
+            border-right: 1px solid var(--card-border);
+        }
+
+        .atm-row {
+            background-color: var(--atm-color) !important;
+        }
+        .atm-row td.strike-column {
+            border-top: 1px solid var(--atm-border);
+            border-bottom: 1px solid var(--atm-border);
+            color: #FFD700;
+        }
+
+        .trade-strike-row {
+            border: 1px dashed var(--green-color);
+            background: rgba(0, 230, 118, 0.03);
+        }
+
+        .options-chart-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            justify-content: space-between;
+        }
+
+        .options-chart-wrapper {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 16px;
+            height: 250px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- --- Header --- -->
+    <header>
+        <div class="header-title-container">
+            <h1 id="header-date">Nifty Options Slope Inspector</h1>
+            <p>Interactive Spot Tracker & Options Slope Replay</p>
+        </div>
+        <div class="header-actions">
+            <a href="http://localhost:8504" class="btn"><span style="font-size:16px;">⟵</span> Back to Dashboard</a>
+        </div>
+    </header>
+
+    <!-- --- Stats Grid --- -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Inspected Date</div>
+            <div class="stat-value" id="stat-date">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">ATM Strike (at 9:45)</div>
+            <div class="stat-value" id="stat-strike" style="color: #FFD700;">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Total Day PnL</div>
+            <div class="stat-value" id="stat-pnl">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Leg Traded</div>
+            <div class="stat-value" id="stat-traded-leg">-</div>
+        </div>
+    </div>
+
+    <!-- --- Main Workspace --- -->
+    <div class="workspace-grid">
+        <!-- Nifty Spot Chart -->
+        <div class="panel-card">
+            <div class="panel-header" style="flex-wrap: wrap; gap: 10px;">
+                <div class="panel-title" id="chart-panel-title">📉 Nifty 50 Intraday Spot Price</div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 12px; color: var(--text-secondary);">Select Chart:</span>
+                    <select id="chart-type-select" class="speed-select" style="padding: 4px 8px; font-size:12px;">
+                        <option value="spot">Nifty 50 Spot</option>
+                    </select>
+                </div>
+                <div style="font-size:13px; color:var(--text-secondary);" id="curr-spot-display">Current: -</div>
+            </div>
+            <div id="chart-container"></div>
+        </div>
+
+        <!-- Executed Trades List -->
+        <div class="panel-card">
+            <div class="panel-header">
+                <div class="panel-title">📋 Trade Executed (09:45 AM Entry)</div>
+            </div>
+            <div class="trades-list" id="trades-container">
+                <!-- Executed trades populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- --- Timeline Scrub Controller --- -->
+    <div class="timeline-container">
+        <div class="timeline-controls">
+            <button class="play-btn" id="play-btn">▶</button>
+            <select class="speed-select" id="speed-select">
+                <option value="1000">1s / min</option>
+                <option value="500" selected>0.5s / min</option>
+                <option value="200">0.2s / min</option>
+                <option value="50">0.05s / min</option>
+            </select>
+        </div>
+        <div class="time-slider-wrapper">
+            <div class="time-slider-header">
+                <span id="slider-start-time">09:15</span>
+                <span id="slider-curr-time" style="color:#2196F3; font-weight:700; font-size:15px;">09:15</span>
+                <span id="slider-end-time">15:30</span>
+            </div>
+            <input type="range" class="time-slider" id="time-slider" min="0" max="0" value="0">
+        </div>
+    </div>
+
+    <!-- --- Options Chain Visualizer Section --- -->
+    <div class="options-section">
+        <!-- Table Option Chain -->
+        <div class="panel-card" style="min-height:550px;">
+            <div class="panel-header">
+                <div class="panel-title">⚡ Interactive Options Chain</div>
+                <div style="font-size:12px; color:var(--text-secondary);">ATM Strike highlighted</div>
+            </div>
+            <div class="options-table-container">
+                <table class="option-chain-table">
+                    <thead>
+                        <tr>
+                            <th colspan="4" style="color:var(--ce-color); border-bottom: 2px solid var(--ce-color);">Calls (CE)</th>
+                            <th rowspan="2" style="background: rgba(255,255,255,0.03); width: 80px;">Strike</th>
+                            <th colspan="4" style="color:var(--pe-color); border-bottom: 2px solid var(--pe-color);">Puts (PE)</th>
+                        </tr>
+                        <tr>
+                            <th class="ce-column">OI</th>
+                            <th class="ce-column">IV</th>
+                            <th class="ce-column">Volume</th>
+                            <th class="ce-column">LTP</th>
+                            <th class="pe-column">LTP</th>
+                            <th class="pe-column">Volume</th>
+                            <th class="pe-column">IV</th>
+                            <th class="pe-column">OI</th>
+                        </tr>
+                    </thead>
+                    <tbody id="option-chain-tbody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Option Chain Visual Charts -->
+        <div class="options-chart-container">
+            <!-- Premiums Bar Chart -->
+            <div class="options-chart-wrapper">
+                <canvas id="premium-chart"></canvas>
+            </div>
+            <!-- OI Bar Chart -->
+            <div class="options-chart-wrapper">
+                <canvas id="oi-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Extract query parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const day = urlParams.get('day') || '';
+
+        // API Endpoint paths
+        const API_BASE = '';
+
+        // Global State Variables
+        let spotData = [];
+        let tradesData = [];
+        let optionSeriesData = {};
+        let optionChainCache = {}; 
+        let currentIdx = 0;
+        let isPlaying = false;
+        let playInterval = null;
+
+        // Chart References
+        let tvChart = null;
+        let lineSeries = null;
+        let candlestickSeries = null;
+        let activeChartType = 'spot'; 
+        let premiumChart = null;
+        let oiChart = null;
+        let activeMarkersPlugin = null; 
+
+        // DOM elements
+        const headerDate = document.getElementById('header-date');
+        const statDate = document.getElementById('stat-date');
+        const statStrike = document.getElementById('stat-strike');
+        const statPnl = document.getElementById('stat-pnl');
+        const statTradedLeg = document.getElementById('stat-traded-leg');
+        const currSpotDisplay = document.getElementById('curr-spot-display');
+        const timeSlider = document.getElementById('time-slider');
+        const sliderCurrTime = document.getElementById('slider-curr-time');
+        const playBtn = document.getElementById('play-btn');
+        const speedSelect = document.getElementById('speed-select');
+        const tradesContainer = document.getElementById('trades-container');
+        const optionChainTbody = document.getElementById('option-chain-tbody');
+        const chartTypeSelect = document.getElementById('chart-type-select');
+
+        // Initial setup
+        window.addEventListener('DOMContentLoaded', async () => {
+            if (!day) {
+                alert("Please specify a 'day' parameter in the URL. (e.g. ?day=2026-01-01)");
+                return;
+            }
+
+            // Set Initial Stats Labels
+            headerDate.textContent = `Nifty Slope Inspector: ${day}`;
+            statDate.textContent = day;
+
+            // Fetch Day Summary (Spot + Trades + Option Series)
+            await fetchDaySummary();
+            
+            // Listen for chart selection changes
+            chartTypeSelect.addEventListener('change', (e) => {
+                switchChart(e.target.value);
+            });
+        });
+
+        async function fetchDaySummary() {
+            try {
+                const res = await fetch(`${API_BASE}/api/day_summary?day=${day}`);
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert(`Error: ${err.error || 'Failed to fetch day summary'}`);
+                    return;
+                }
+                const data = await res.json();
+                
+                spotData = data.spot_series || [];
+                tradesData = data.trades || [];
+                optionSeriesData = data.option_series || {};
+
+                if (spotData.length === 0) {
+                    alert("No intraday spot price series found for this day.");
+                    return;
+                }
+
+                // Populate Stats from trade (since we only have 1 trade per day)
+                if (tradesData.length > 0) {
+                    const trade = tradesData[0];
+                    statStrike.textContent = trade.Strike;
+                    statTradedLeg.textContent = `${trade.Leg} Short`;
+                    
+                    const pnl = trade.PnL;
+                    statPnl.textContent = `₹ ${pnl.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits:2})}`;
+                    if (pnl >= 0) {
+                        statPnl.className = 'stat-value green';
+                        statTradedLeg.style.color = '#00E676';
+                    } else {
+                        statPnl.className = 'stat-value red';
+                        statTradedLeg.style.color = '#FF5252';
+                    }
+                } else {
+                    statStrike.textContent = "No Trade";
+                    statTradedLeg.textContent = "-";
+                    statPnl.textContent = "₹ 0.00";
+                }
+
+                // Populate Chart Selector Select Options
+                Object.keys(optionSeriesData).sort().forEach(key => {
+                    const [strike, leg] = key.split('_');
+                    const opt = document.createElement('option');
+                    opt.value = key;
+                    opt.textContent = `ATM ${leg} (${strike})`;
+                    chartTypeSelect.appendChild(opt);
+                });
+
+                // Configure Slider
+                timeSlider.max = spotData.length - 1;
+                document.getElementById('slider-start-time').textContent = spotData[0].time;
+                document.getElementById('slider-end-time').textContent = spotData[spotData.length - 1].time;
+
+                // Render spot TV Chart
+                initTVChart();
+                
+                // Render trades lists
+                renderTradesList();
+
+                // Load initial minute options chain
+                selectTime(0);
+
+            } catch (err) {
+                console.error("Summary load error:", err);
+                alert("Failed to connect to backend server.");
+            }
+        }
+
+        // Initialize TradingView Lightweight Charts
+        function initTVChart() {
+            const chartDiv = document.getElementById('chart-container');
+            const w = chartDiv.clientWidth  || 650;
+            const h = chartDiv.clientHeight || 380;
+            
+            tvChart = LightweightCharts.createChart(chartDiv, {
+                width:  w,
+                height: h,
+                layout: {
+                    background: { color: '#0B0E14' },
+                    textColor:  '#90A4AE',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255,255,255,0.03)' },
+                    horzLines: { color: 'rgba(255,255,255,0.03)' },
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(255,255,255,0.1)',
+                },
+                timeScale: {
+                    borderColor:   'rgba(255,255,255,0.1)',
+                    timeVisible:   true,
+                    secondsVisible: false,
+                    fixLeftEdge:   true,
+                    fixRightEdge:  true,
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                }
+            });
+
+            // Set up default view (Spot Area chart)
+            switchChart('spot');
+
+            // Keep chart pixel-perfect when the panel resizes
+            const resizeObserver = new ResizeObserver(entries => {
+                if (!entries.length) return;
+                const { width, height } = entries[0].contentRect;
+                if (width > 0 && height > 0) {
+                    tvChart.resize(width, height);
+                    tvChart.timeScale().fitContent();
+                }
+            });
+            resizeObserver.observe(chartDiv);
+
+            requestAnimationFrame(() => {
+                const rw = chartDiv.clientWidth  || 650;
+                const rh = chartDiv.clientHeight || 380;
+                tvChart.resize(rw, rh);
+                tvChart.timeScale().fitContent();
+            });
+
+            // Listen to click on chart to select closest time
+            tvChart.subscribeClick(param => {
+                if (!param || !param.time) return;
+                const closestIdx = spotData.findIndex(d => d.timestamp === param.time);
+                if (closestIdx !== -1) {
+                    isPlaying = false;
+                    clearInterval(playInterval);
+                    playBtn.textContent = '▶';
+                    selectTime(closestIdx);
+                }
+            });
+        }
+
+        // Handle switching active chart
+        function switchChart(type) {
+            activeChartType = type;
+            
+            if (activeMarkersPlugin) {
+                activeMarkersPlugin = null; 
+            }
+            if (lineSeries) {
+                tvChart.removeSeries(lineSeries);
+                lineSeries = null;
+            }
+            if (candlestickSeries) {
+                tvChart.removeSeries(candlestickSeries);
+                candlestickSeries = null;
+            }
+
+            const chartPanelTitle = document.getElementById('chart-panel-title');
+
+            if (type === 'spot') {
+                chartPanelTitle.textContent = "📉 Nifty 50 Intraday Spot Price";
+
+                lineSeries = tvChart.addSeries(LightweightCharts.AreaSeries, {
+                    lineColor: '#2196F3',
+                    topColor: 'rgba(33, 150, 243, 0.4)',
+                    bottomColor: 'rgba(33, 150, 243, 0.0)',
+                    lineWidth: 2,
+                });
+
+                const chartData = spotData.map(d => ({
+                    time: d.timestamp,
+                    value: d.value
+                }));
+                lineSeries.setData(chartData);
+                tvChart.timeScale().fitContent();
+
+                const markers = getMarkersForSpot();
+                if (markers.length > 0) {
+                    activeMarkersPlugin = LightweightCharts.createSeriesMarkers(lineSeries, markers);
+                }
+
+                const selected = spotData[currentIdx];
+                if (selected) {
+                    currSpotDisplay.textContent = `Spot: ₹ ${selected.value.toFixed(2)}`;
+                }
+            } else {
+                const [strike, leg] = type.split('_');
+                chartPanelTitle.textContent = `🕯️ ATM Option: Strike ${strike} ${leg}`;
+
+                candlestickSeries = tvChart.addSeries(LightweightCharts.CandlestickSeries, {
+                    upColor: '#00E676',
+                    downColor: '#FF5252',
+                    borderDownColor: '#FF5252',
+                    borderUpColor: '#00E676',
+                    wickDownColor: '#FF5252',
+                    wickUpColor: '#00E676',
+                });
+
+                const oData = optionSeriesData[type] || [];
+                const chartData = oData.map(d => ({
+                    time: d.time,
+                    open: d.open,
+                    high: d.high,
+                    low: d.low,
+                    close: d.close
+                }));
+                candlestickSeries.setData(chartData);
+                tvChart.timeScale().fitContent();
+
+                const markers = getMarkersForOption(strike, leg);
+                if (markers.length > 0) {
+                    activeMarkersPlugin = LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
+                }
+
+                const selected = spotData[currentIdx];
+                if (selected) {
+                    const oPoint = oData.find(d => d.time_str === selected.time);
+                    if (oPoint) {
+                        currSpotDisplay.textContent = `LTP: ₹ ${oPoint.close.toFixed(2)}`;
+                    } else {
+                        currSpotDisplay.textContent = `LTP: -`;
+                    }
+                }
+            }
+        }
+
+        // Generate markers for Nifty Index Spot chart
+        function getMarkersForSpot() {
+            const markers = [];
+            tradesData.forEach(t => {
+                const entryDt = spotData.find(d => d.time === t.Entry_Time.substring(0, 5));
+                const exitDt = spotData.find(d => d.time === t.Exit_Time.substring(0, 5));
+
+                // Add 9:15 Slope Start Reference
+                const slopeStartDt = spotData.find(d => d.time === "09:15");
+                if (slopeStartDt) {
+                    markers.push({
+                        time: slopeStartDt.timestamp,
+                        position: 'aboveBar',
+                        color: '#90A4AE',
+                        shape: 'circle',
+                        text: 'Slope Period Start (9:15)'
+                    });
+                }
+
+                if (entryDt) {
+                    markers.push({
+                        time: entryDt.timestamp,
+                        position: 'aboveBar',
+                        color: t.Leg === 'CE' ? '#00E5FF' : '#FF9100',
+                        shape: 'arrowDown',
+                        text: `Entry: Sold ATM ${t.Leg} (${t.Strike})`
+                    });
+                }
+
+                if (exitDt) {
+                    markers.push({
+                        time: exitDt.timestamp,
+                        position: 'belowBar',
+                        color: t.PnL >= 0 ? '#00E676' : '#FF5252',
+                        shape: 'arrowUp',
+                        text: `Exit: ${t.Reason} (PnL: ₹${t.PnL})`
+                    });
+                }
+            });
+            return markers.sort((a, b) => a.time - b.time);
+        }
+
+        // Generate markers for Option contract candlestick chart
+        function getMarkersForOption(strikeVal, legVal) {
+            const markers = [];
+            
+            // Add 9:15 Slope Start Reference
+            const oData = optionSeriesData[`${strikeVal}_${legVal}`] || [];
+            const slopeStartDt = oData.find(d => d.time_str === "09:15");
+            if (slopeStartDt) {
+                markers.push({
+                    time: slopeStartDt.time,
+                    position: 'aboveBar',
+                    color: '#90A4AE',
+                    shape: 'circle',
+                    text: 'Slope Start'
+                });
+            }
+
+            tradesData.forEach(t => {
+                if (parseInt(t.Strike) !== parseInt(strikeVal) || t.Leg !== legVal) {
+                    return; // only show markers on the TRADED leg
+                }
+                
+                const entryDt = oData.find(d => d.time_str === t.Entry_Time.substring(0, 5));
+                const exitDt = oData.find(d => d.time_str === t.Exit_Time.substring(0, 5));
+
+                if (entryDt) {
+                    markers.push({
+                        time: entryDt.time,
+                        position: 'aboveBar',
+                        color: '#FF1744',
+                        shape: 'arrowDown',
+                        text: `Sell Short @ ₹${t.Sell_Price}`
+                    });
+                }
+
+                if (exitDt) {
+                    markers.push({
+                        time: exitDt.time,
+                        position: 'belowBar',
+                        color: '#00E676',
+                        shape: 'arrowUp',
+                        text: `Cover Buy @ ₹${t.Exit_Price}`
+                    });
+                }
+            });
+            return markers.sort((a, b) => a.time - b.time);
+        }
+
+        // Render executing trades panel list
+        function renderTradesList() {
+            tradesContainer.innerHTML = '';
+            
+            if (tradesData.length === 0) {
+                tradesContainer.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding-top:40px; font-size:13px;">No trades executed on this day.</div>';
+                return;
+            }
+
+            tradesData.forEach(t => {
+                const isWin = t.PnL >= 0;
+                
+                const item = document.createElement('div');
+                item.className = 'trade-item';
+                item.innerHTML = `
+                    <div class="trade-item-header">
+                        <div>
+                            <span class="trade-type-badge ${t.Leg.toLowerCase()}">${t.Leg} Short</span>
+                            <span style="font-weight:600; margin-left: 8px;">Strike ₹${t.Strike}</span>
+                        </div>
+                        <div class="trade-pnl ${isWin ? 'green' : 'red'}">
+                            ${isWin ? '+' : ''}₹ ${t.PnL.toLocaleString('en-IN', {minimumFractionDigits: 1})}
+                        </div>
+                    </div>
+                    <div class="trade-details-grid">
+                        <div>Entry: ${t.Entry_Time.substring(0, 5)} @ ₹ ${t.Sell_Price}</div>
+                        <div>Exit: ${t.Exit_Time.substring(0, 5)} @ ₹ ${t.Exit_Price}</div>
+                        <div style="grid-column: span 2; margin-top: 6px; font-weight:600; color:#FFD700;">
+                            Slope CE: ${t.Slope_CE.toFixed(4)} | Slope PE: ${t.Slope_PE.toFixed(4)}
+                        </div>
+                        <div style="grid-column: span 2; margin-top: 4px; font-style: italic;">Reason: ${t.Reason}</div>
+                    </div>
+                `;
+
+                // Clicking trade jumps slider to trade entry time
+                item.addEventListener('click', () => {
+                    isPlaying = false;
+                    clearInterval(playInterval);
+                    playBtn.textContent = '▶';
+                    const targetTime = t.Entry_Time.substring(0, 5);
+                    const idx = spotData.findIndex(d => d.time === targetTime);
+                    if (idx !== -1) {
+                        selectTime(idx);
+                    }
+                });
+
+                tradesContainer.appendChild(item);
+            });
+        }
+
+        // Handle Selecting time in progression
+        async function selectTime(idx) {
+            currentIdx = idx;
+            timeSlider.value = idx;
+            
+            const selected = spotData[idx];
+            sliderCurrTime.textContent = selected.time;
+
+            // Update TV Display
+            if (tvChart) {
+                if (activeChartType === 'spot') {
+                    if (lineSeries) {
+                        currSpotDisplay.textContent = `Spot: ₹ ${selected.value.toFixed(2)}`;
+                    }
+                } else {
+                    if (candlestickSeries) {
+                        const oData = optionSeriesData[activeChartType] || [];
+                        const oPoint = oData.find(d => d.time_str === selected.time);
+                        if (oPoint) {
+                            currSpotDisplay.textContent = `LTP: ₹ ${oPoint.close.toFixed(2)}`;
+                        } else {
+                            currSpotDisplay.textContent = `LTP: -`;
+                        }
+                    }
+                }
+            }
+
+            // Load and plot options chain
+            await fetchOptionChain(selected.time);
+        }
+
+        async function fetchOptionChain(timeStr) {
+            const cacheKey = `${day}_${timeStr}`;
+            if (optionChainCache[cacheKey]) {
+                renderOptionChain(optionChainCache[cacheKey]);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/option_chain?day=${day}&time=${timeStr}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                
+                optionChainCache[cacheKey] = data;
+                renderOptionChain(data);
+            } catch (err) {
+                console.error("Option chain fetch error:", err);
+            }
+        }
+
+        function renderOptionChain(data) {
+            const chain = data.option_chain || [];
+            const spot = data.spot;
+
+            optionChainTbody.innerHTML = '';
+
+            const atmStrike = Math.round(spot / 50) * 50;
+
+            chain.forEach(strikeData => {
+                const isATM = strikeData.strike === atmStrike;
+                const wasTraded = tradesData.some(t => t.Strike === strikeData.strike);
+                
+                const row = document.createElement('tr');
+                if (isATM) row.className = 'atm-row';
+                else if (wasTraded) row.className = 'trade-strike-row';
+
+                row.innerHTML = `
+                    <td class="ce-column">${strikeData.CE.oi.toLocaleString('en-IN')}</td>
+                    <td class="ce-column">${strikeData.CE.iv.toFixed(1)}%</td>
+                    <td class="ce-column">${strikeData.CE.volume.toLocaleString('en-IN')}</td>
+                    <td class="ce-column" style="font-weight:600;">₹ ${strikeData.CE.ltp.toFixed(2)}</td>
+                    
+                    <td class="strike-column">${strikeData.strike}</td>
+                    
+                    <td class="pe-column" style="font-weight:600;">₹ ${strikeData.PE.ltp.toFixed(2)}</td>
+                    <td class="pe-column">${strikeData.PE.volume.toLocaleString('en-IN')}</td>
+                    <td class="pe-column">${strikeData.PE.iv.toFixed(1)}%</td>
+                    <td class="pe-column">${strikeData.PE.oi.toLocaleString('en-IN')}</td>
+                `;
+
+                optionChainTbody.appendChild(row);
+            });
+
+            const focusedChain = chain.filter(s => Math.abs(s.strike - spot) <= 350);
+            updateVisualCharts(focusedChain);
+        }
+
+        function updateVisualCharts(focusedChain) {
+            const strikes = focusedChain.map(s => s.strike);
+            const ceLTPs = focusedChain.map(s => s.CE.ltp);
+            const peLTPs = focusedChain.map(s => s.PE.ltp);
+            const ceOIs = focusedChain.map(s => s.CE.oi);
+            const peOIs = focusedChain.map(s => s.PE.oi);
+
+            // 1. Premium LTP Chart
+            if (!premiumChart) {
+                const ctx = document.getElementById('premium-chart').getContext('2d');
+                premiumChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: strikes,
+                        datasets: [
+                            {
+                                label: 'CE LTP (₹)',
+                                data: ceLTPs,
+                                backgroundColor: 'rgba(0, 229, 255, 0.6)',
+                                borderColor: 'var(--ce-color)',
+                                borderWidth: 1
+                            },
+                            {
+                                label: 'PE LTP (₹)',
+                                data: peLTPs,
+                                backgroundColor: 'rgba(255, 145, 0, 0.6)',
+                                borderColor: 'var(--pe-color)',
+                                borderWidth: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { labels: { color: '#90A4AE', font: { family: 'Outfit' } } },
+                            title: { display: true, text: 'Options Premium vs Strike', color: '#FAFAFA', font: { family: 'Outfit', size: 14 } }
+                        },
+                        scales: {
+                            x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#90A4AE', font: { family: 'Outfit' } } },
+                            y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#90A4AE', font: { family: 'Outfit' } } }
+                        }
+                    }
+                });
+            } else {
+                premiumChart.data.labels = strikes;
+                premiumChart.data.datasets[0].data = ceLTPs;
+                premiumChart.data.datasets[1].data = peLTPs;
+                premiumChart.update('none'); 
+            }
+
+            // 2. Open Interest (OI) Chart
+            if (!oiChart) {
+                const ctx = document.getElementById('oi-chart').getContext('2d');
+                oiChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: strikes,
+                        datasets: [
+                            {
+                                label: 'CE OI',
+                                data: ceOIs,
+                                backgroundColor: 'rgba(0, 229, 255, 0.4)',
+                                borderColor: 'var(--ce-color)',
+                                borderWidth: 1
+                            },
+                            {
+                                label: 'PE OI',
+                                data: peOIs,
+                                backgroundColor: 'rgba(255, 145, 0, 0.4)',
+                                borderColor: 'var(--pe-color)',
+                                borderWidth: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { labels: { color: '#90A4AE', font: { family: 'Outfit' } } },
+                            title: { display: true, text: 'Open Interest (OI) Distribution', color: '#FAFAFA', font: { family: 'Outfit', size: 14 } }
+                        },
+                        scales: {
+                            x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#90A4AE', font: { family: 'Outfit' } } },
+                            y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#90A4AE', font: { family: 'Outfit' } } }
+                        }
+                    }
+                });
+            } else {
+                oiChart.data.labels = strikes;
+                oiChart.data.datasets[0].data = ceOIs;
+                oiChart.data.datasets[1].data = peOIs;
+                oiChart.update('none'); 
+            }
+        }
+
+        // Timeline slider input listener
+        timeSlider.addEventListener('input', (e) => {
+            isPlaying = false;
+            clearInterval(playInterval);
+            playBtn.textContent = '▶';
+            selectTime(parseInt(e.target.value));
+        });
+
+        // Play/Pause Replay Controls
+        playBtn.addEventListener('click', () => {
+            if (isPlaying) {
+                isPlaying = false;
+                clearInterval(playInterval);
+                playBtn.textContent = '▶';
+            } else {
+                isPlaying = true;
+                playBtn.textContent = '❚❚';
+                
+                const speed = parseInt(speedSelect.value);
+                
+                playInterval = setInterval(() => {
+                    if (currentIdx >= spotData.length - 1) {
+                        currentIdx = 0; 
+                    } else {
+                        currentIdx++;
+                    }
+                    selectTime(currentIdx);
+                }, speed);
+            }
+        });
+
+        // Dynamic Speed Adjustment
+        speedSelect.addEventListener('change', () => {
+            if (isPlaying) {
+                clearInterval(playInterval);
+                const speed = parseInt(speedSelect.value);
+                playInterval = setInterval(() => {
+                    if (currentIdx >= spotData.length - 1) {
+                        currentIdx = 0;
+                    } else {
+                        currentIdx++;
+                    }
+                    selectTime(currentIdx);
+                }, speed);
+            }
+        });
+    </script>
+</body>
+</html>
