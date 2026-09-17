@@ -133,7 +133,7 @@ df_daily = df_daily[df_daily['Date'].dt.year.isin(selected_years)].copy()
 df_trades = df_trades[df_trades['Date'].dt.year.isin(selected_years)].copy()
 
 # The actual executed starting capital from the dataset for the selected period
-starting_capital = df_daily['Starting_Capital'].iloc[0]
+starting_capital = 100000.0
 
 # Recalculate cumulative capital based on the actual PnL for the selected period
 df_daily['Ending_Capital'] = starting_capital + df_daily['Total_PnL'].cumsum()
@@ -222,7 +222,7 @@ if not df_daily.empty:
             if df_y.empty:
                 continue
                 
-            start_cap = df_y['Starting_Capital'].iloc[0]
+            start_cap = 100000.0
             pnl = df_y['Total_PnL'].sum()
             end_cap = start_cap + pnl
             ret_pct = (pnl / start_cap) * 100 if start_cap > 0 else 0.0
@@ -318,6 +318,77 @@ if not df_daily.empty:
             )
             fig_dd_bar.update_traces(textposition='outside')
             st.plotly_chart(fig_dd_bar, use_container_width=True)
+            
+        # --- Month-by-Month Performance Breakdown ---
+        st.markdown("### 📅 Month-by-Month Performance Breakdown")
+        
+        # Calculate monthly PnL
+        df_daily_all['Year'] = df_daily_all['Date'].dt.year
+        df_daily_all['Month_Num'] = df_daily_all['Date'].dt.month
+        
+        # Group by Year and Month and sum PnL
+        df_monthly_pnl = df_daily_all.groupby(['Year', 'Month_Num'])['Total_PnL'].sum().reset_index()
+        
+        # Calculate monthly returns (relative to 1 lakh starting capital)
+        df_monthly_pnl['Return (%)'] = (df_monthly_pnl['Total_PnL'] / 100000.0) * 100
+        
+        # Pivot to create Year vs Month table
+        df_pivot = df_monthly_pnl.pivot(index='Year', columns='Month_Num', values='Return (%)')
+        
+        # Rename columns to Month shortnames
+        month_names = {
+            1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
+            7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+        }
+        df_pivot.rename(columns=month_names, inplace=True)
+        
+        # Reindex to ensure all months are present (Jan to Dec)
+        months_ordered = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        df_pivot = df_pivot.reindex(columns=months_ordered).fillna(0.0)
+        
+        # Calculate Year Total
+        df_pivot['Total (%)'] = df_pivot.sum(axis=1)
+        df_pivot = df_pivot.reset_index()
+        
+        # Define styling function
+        def style_cells(val):
+            if isinstance(val, (int, float)):
+                if val > 0:
+                    return 'color: #00E676; font-weight: bold;'
+                elif val < 0:
+                    return 'color: #FF5252; font-weight: bold;'
+            return ''
+            
+        styled_df = df_pivot.style.applymap(style_cells, subset=months_ordered + ['Total (%)'])
+        format_dict = {col: "{:,.2f}%" for col in months_ordered + ['Total (%)']}
+        format_dict['Year'] = "{:d}"
+        styled_df = styled_df.format(format_dict)
+        
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        
+        # Monthly returns sequential bar chart
+        df_monthly_pnl['Period'] = df_monthly_pnl['Year'].astype(str) + "-" + df_monthly_pnl['Month_Num'].map(lambda m: f"{m:02d}")
+        
+        fig_monthly_bar = px.bar(
+            df_monthly_pnl, 
+            x="Period", 
+            y="Return (%)", 
+            title="Return (%) by Month",
+            text=df_monthly_pnl["Return (%)"].apply(lambda val: f"{val:.1f}%"),
+            color="Return (%)",
+            color_continuous_scale=["#FF5252", "#4CAF50"]
+        )
+        fig_monthly_bar.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#E0E0E0",
+            xaxis=dict(type='category', showgrid=False, title="Month"),
+            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', title="Return (%)"),
+            margin=dict(l=0, r=0, t=30, b=0),
+            coloraxis_showscale=False
+        )
+        fig_monthly_bar.update_traces(textposition='outside')
+        st.plotly_chart(fig_monthly_bar, use_container_width=True)
 
 st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
